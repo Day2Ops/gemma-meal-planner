@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 
-MODEL_PATH = "mlx-community/gemma-4-12B-it-qat-4bit"
+MODEL_PATH = "mlx-community/gemma-4-e2b-it-4bit"
 
 PROMPT = """Look at this fridge/pantry image and respond with ONLY valid JSON — no markdown, no code fences, no extra text.
 
