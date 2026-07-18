@@ -4,10 +4,6 @@ import argparse
 import json
 import sys
 
-from mlx_vlm import load, generate
-from mlx_vlm.prompt_utils import apply_chat_template
-from mlx_vlm.utils import load_config
-
 MODEL_PATH = "mlx-community/gemma-4-12B-it-qat-4bit"
 
 PROMPT = """Look at this fridge/pantry image and respond with ONLY valid JSON — no markdown, no code fences, no extra text.
@@ -43,11 +39,20 @@ def parse_args():
     parser.add_argument(
         "--max-tokens", type=int, default=2048, help="Max tokens to generate"
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Disable verbose generation progress output",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+
+    from mlx_vlm import load, generate
+    from mlx_vlm.prompt_utils import apply_chat_template
+    from mlx_vlm.utils import load_config
 
     print(f"Loading model {args.model} …", file=sys.stderr)
     model, processor = load(args.model)
@@ -65,7 +70,7 @@ def main():
         image=args.image,
         temperature=0.0,
         max_tokens=args.max_tokens,
-        verbose=False,
+        verbose=not args.quiet,
     )
 
     # Validate JSON before printing
