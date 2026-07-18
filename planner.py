@@ -177,14 +177,61 @@ def _parse_json(text: str) -> dict[str, Any]:
     raise ValueError(f"Model output is not valid JSON. Output preview: {preview}")
 
 
-def _load_prompt(family_preferences: str) -> str:
+def _load_prompt() -> str:
     if not PROMPT_PATH.exists():
         raise ValueError(f"Prompt file not found: {PROMPT_PATH}")
 
-    template = PROMPT_PATH.read_text(encoding="utf-8")
-    if "{family_preferences}" not in template:
-        raise ValueError("Prompt file must include {family_preferences} placeholder.")
-    return template.replace("{family_preferences}", family_preferences.strip())
+    return PROMPT_PATH.read_text(encoding="utf-8").strip()
+
+
+def _build_prompt(
+    base_prompt: str,
+    family_preferences: str,
+    additional_feedback: str = "",
+    plan_approved: bool = False,
+) -> str:
+    sections = [
+        f"Family preferences/context: {family_preferences.strip()}",
+        (
+            "Flow steps:\n"
+            "1. Identify and list what exists in the images.\n"
+            "2. Propose a 7-day dinner plan using available ingredients.\n"
+            "3. Ask for additional feedback to refine the plan."
+        ),
+    ]
+
+    if additional_feedback.strip():
+        sections.append(f"User feedback to apply: {additional_feedback.strip()}")
+
+    if plan_approved:
+        sections.append(
+            "Plan approval status: APPROVED.\n"
+            "Now finalize the plan and include the shopping needs list."
+        )
+    else:
+        sections.append(
+            "Plan approval status: NOT APPROVED.\n"
+            "Do not finalize shopping needs yet."
+        )
+
+    return "\n\n".join(sections + [base_prompt])
+
+
+def _dedupe_ingredients(payload: dict[str, Any]) -> dict[str, Any]:
+    items = payload.get("identified_ingredients")
+    if isinstance(items, list):
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            if not isinstance(item, str):
+                continue
+            key = item.strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item.strip())
+        payload["identified_ingredients"] = deduped
+    return payload
 
 
 def _repair_to_json_with_model(
@@ -222,6 +269,8 @@ def generate_meal_plan(
     model_path: str = DEFAULT_MODEL_PATH,
     max_tokens: int = 2048,
     verbose: bool = False,
+    additional_feedback: str = "",
+    plan_approved: bool = False,
 ) -> dict[str, Any]:
     if not image_paths:
         raise ValueError("At least one ingredient photo is required.")
@@ -231,7 +280,13 @@ def generate_meal_plan(
         raise ValueError(f"Image file(s) not found: {missing_str}")
 
     model, processor, config = _get_model_parts(model_path)
-    prompt = _load_prompt(family_preferences)
+    base_prompt = _load_prompt()
+    prompt = _build_prompt(
+        base_prompt=base_prompt,
+        family_preferences=family_preferences,
+        additional_feedback=additional_feedback,
+        plan_approved=plan_approved,
+    )
     formatted_prompt = apply_chat_template(
         processor, config, prompt, num_images=len(image_paths)
     )
@@ -250,7 +305,7 @@ def generate_meal_plan(
     )
     first_text = _extract_text(output)
     try:
-        return _parse_json(first_text)
+        return _dedupe_ingredients(_parse_json(first_text))
     except ValueError:
         pass
 
@@ -267,12 +322,14 @@ def generate_meal_plan(
         )
         retry_text = _extract_text(retry_output)
         try:
-            return _parse_json(retry_text)
+            return _dedupe_ingredients(_parse_json(retry_text))
         except ValueError:
             first_text = retry_text
 
     try:
-        return _repair_to_json_with_model(model, processor, config, first_text, verbose)
+        return _dedupe_ingredients(
+            _repair_to_json_with_model(model, processor, config, first_text, verbose)
+        )
     except ModelOutputError as exc:
         if not exc.raw_output:
             exc.raw_output = first_text

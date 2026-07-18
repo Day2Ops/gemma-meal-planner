@@ -34,6 +34,16 @@ def parse_args():
         help='Family preferences/context (default from memory, e.g. "2 adults, 1 child")',
     )
     parser.add_argument(
+        "--additional-feedback",
+        default="",
+        help="Extra feedback to refine the proposed weekly plan",
+    )
+    parser.add_argument(
+        "--plan-approved",
+        action="store_true",
+        help="Mark plan as approved so the model returns shopping needs",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose generation progress output",
@@ -49,6 +59,8 @@ def main():
         parsed = generate_meal_plan(
             image_paths=args.image,
             family_preferences=args.family_preferences,
+            additional_feedback=args.additional_feedback,
+            plan_approved=args.plan_approved,
             model_path=args.model,
             max_tokens=args.max_tokens,
             verbose=args.verbose,

@@ -27,10 +27,15 @@ def _default_images() -> list[str] | None:
 def run_planner(
     image_files: list[str] | str | None,
     family_preferences: str,
+    additional_feedback: str,
+    plan_approved: bool,
+    plan_controls_visible: bool,
     model_path: str,
     max_tokens: int,
     show_raw_on_error: bool,
-) -> tuple[dict[str, Any], str, Any, Any, str]:
+) -> tuple[
+    Any, Any, Any, Any, Any, Any, str, Any, Any, bool
+]:
     if image_files is None:
         raise gr.Error("Please upload at least one ingredient photo.")
 
@@ -39,37 +44,59 @@ def run_planner(
         raise gr.Error("Please upload at least one ingredient photo.")
 
     save_preferences(family_preferences)
+    effective_feedback = additional_feedback if plan_controls_visible else ""
+    effective_plan_approved = plan_approved if plan_controls_visible else False
     try:
         result = generate_meal_plan(
             image_paths=paths,
             family_preferences=family_preferences,
+            additional_feedback=effective_feedback,
+            plan_approved=effective_plan_approved,
             model_path=model_path,
             max_tokens=max_tokens,
             verbose=False,
         )
+        identified_ingredients = result.get("identified_ingredients", [])
+        weekly_meal_plan = result.get("weekly_meal_plan", [])
+        shopping_list = result.get("shopping_list", [])
         return (
-            result,
-            "",
+            identified_ingredients,
+            weekly_meal_plan,
+            shopping_list,
+            gr.update(visible=False, value=""),
             gr.update(visible=False, value=False),
             gr.update(visible=False, value=""),
             "",
+            gr.update(visible=True),
+            gr.update(visible=True),
+            True,
         )
     except ModelOutputError as exc:
         raw = exc.raw_output or "<no raw output captured>"
         return (
-            {},
-            f"ERROR: {exc}",
+            [],
+            [],
+            [],
+            gr.update(visible=True, value=f"ERROR: {exc}"),
             gr.update(visible=True),
             gr.update(visible=show_raw_on_error, value=raw if show_raw_on_error else ""),
             raw,
+            gr.update(visible=plan_controls_visible),
+            gr.update(visible=plan_controls_visible),
+            plan_controls_visible,
         )
     except ValueError as exc:
         return (
-            {},
-            f"ERROR: {exc}",
+            [],
+            [],
+            [],
+            gr.update(visible=True, value=f"ERROR: {exc}"),
             gr.update(visible=False, value=False),
             gr.update(visible=False, value=""),
             "",
+            gr.update(visible=plan_controls_visible),
+            gr.update(visible=plan_controls_visible),
+            plan_controls_visible,
         )
 
 
@@ -91,6 +118,17 @@ with gr.Blocks(title="Gemma 4 Meal Planner (MLX)") as demo:
                 value=load_saved_preferences(),
                 lines=3,
                 placeholder="2 adults, 1 child; no peanuts; budget-friendly dinners",
+            )
+            additional_feedback = gr.Textbox(
+                label="Additional feedback to refine the plan",
+                lines=2,
+                placeholder="Example: less spicy dinners, more pasta, quicker weekday meals",
+                visible=False,
+            )
+            plan_approved = gr.Checkbox(
+                label="Plan approved (generate shopping list)",
+                value=False,
+                visible=False,
             )
             model_path = gr.Textbox(
                 label="Model",
@@ -117,8 +155,10 @@ with gr.Blocks(title="Gemma 4 Meal Planner (MLX)") as demo:
             )
             submit = gr.Button("Generate 7-day plan", variant="primary")
         with gr.Column():
-            result_json = gr.JSON(label="Meal plan JSON")
-            status_output = gr.Textbox(label="Status", lines=3, interactive=False)
+            identified_ingredients_output = gr.JSON(label="identified_ingredients")
+            weekly_meal_plan_output = gr.JSON(label="weekly_meal_plan")
+            shopping_list_output = gr.JSON(label="shopping_list")
+            status_output = gr.Textbox(label="Status", lines=3, interactive=False, visible=False)
             raw_output = gr.Textbox(
                 label="Raw model output (error mode)",
                 lines=14,
@@ -126,11 +166,32 @@ with gr.Blocks(title="Gemma 4 Meal Planner (MLX)") as demo:
                 visible=False,
             )
             raw_output_cache = gr.State("")
+            plan_controls_visible = gr.State(False)
 
     submit.click(
         fn=run_planner,
-        inputs=[image_files, family_preferences, model_path, max_tokens, show_raw_on_error],
-        outputs=[result_json, status_output, show_raw_on_error, raw_output, raw_output_cache],
+        inputs=[
+            image_files,
+            family_preferences,
+            additional_feedback,
+            plan_approved,
+            plan_controls_visible,
+            model_path,
+            max_tokens,
+            show_raw_on_error,
+        ],
+        outputs=[
+            identified_ingredients_output,
+            weekly_meal_plan_output,
+            shopping_list_output,
+            status_output,
+            show_raw_on_error,
+            raw_output,
+            raw_output_cache,
+            additional_feedback,
+            plan_approved,
+            plan_controls_visible,
+        ],
     )
     show_raw_on_error.change(
         fn=toggle_raw_output,
