@@ -73,13 +73,14 @@ def main():
         verbose=not args.quiet,
     )
 
-    # Validate JSON before printing
+    # GenerationResult has a .text attribute
+    text = (output.text if hasattr(output, "text") else str(output)).strip()
     try:
-        parsed = json.loads(output)
+        parsed = json.loads(text)
         print(json.dumps(parsed, indent=2))
     except json.JSONDecodeError:
         print("Warning: model output is not valid JSON — raw output follows:", file=sys.stderr)
-        print(output)
+        print(text)
         sys.exit(1)
 
 
