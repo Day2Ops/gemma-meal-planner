@@ -1,7 +1,7 @@
 [project]
 name = "gemma-meal-planner"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local AI-powered family meal planner using Gemma 4 and Gradio"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

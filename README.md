@@ -1,46 +1,96 @@
-# 🍳 Family Meal Saver: Gemma 4 Meal Planner 
+# 🍳 Family Meal Saver: Gemma 4 Meal Planner
 
-**Built for the GDG Faro Gemma Hackathon 2026** [2]
+**Built for the GDG Faro Gemma Hackathon 2026**
 
-Meal planning is often a stressful, time-consuming daily chore for parents, frequently resulting in unused ingredients and food waste. **Family Meal Saver** is a local, AI-powered application designed to eliminate this stress while making meal planning an engaging, fun activity for kids to help their parents with. 
+Family Meal Saver is a local, AI-powered family meal planner that transforms fridge photos into a kid-friendly, 7-day dinner plan and an optional shopping list for missing ingredients.
 
-By allowing a child to simply snap a picture of the ingredients currently in the fridge or pantry, the app instantly proposes a full, tailored 7-day family meal plan and generates a precise shopping list for the missing items.
+## Key Points
 
-## 🚀 The Gemma 4 Superpowers We Leveraged
+- Runs locally on Apple Silicon using a quantized Gemma 4 model via MLX
+- Multimodal: accepts photos of ingredients and family preferences
+- Outputs a strict JSON object (see "JSON Output Schema" below) so downstream tooling can parse results reliably
 
-To solve this problem natively and securely, this app utilizes three core Gemma 4 capabilities:
-*   **Local Frontier Intelligence:** Runs entirely locally on Apple Silicon (M1 MacBook Pro) without relying on cloud APIs. We use the quantized `mlx-community/gemma-4-e2b-it-4bit` model for laptop efficiency [1].
-*   **Multimodal Understanding:** The app accepts photos of your fridge or table [1]. Gemma 4 analyzes the image to identify usable food items and incorporates them into the recipes.
-*   **Native Function Calling (Structured Output):** Gemma 4 processes the family composition alongside the identified ingredients to generate a strict, parsed weekly plan and a dedicated shopping list.
+## Tech Stack
 
-## 🛠 Tech Stack
-*   **Model:** Gemma 4 QAT (`mlx-community/gemma-4-e2b-it-4bit`) via Apple **MLX** [1]
-*   **Frontend UI:** **Gradio** for a simple, mobile-friendly interface [1]
-*   **Dependency Management:** **uv** for blazing-fast local Python setup [1]
+- Model: `mlx-community/gemma-4-e2b-it-4bit` (via `mlx_vlm`)
+- UI: `gradio`
+- Dependency/runtime helper: `uv`
 
-## 💡 How It Works (The Flow)
+## How it works
 
-The Gradio UI sends both the family context/preferences and the uploaded ingredient photos to the local MLX model [1].
+1. Upload ingredient photos and provide family context.
+2. The model identifies usable ingredients.
+3. It proposes a 7-day dinner plan that prioritizes available items.
+4. If the plan is approved, the app returns a shopping list of missing items.
 
-1.  **Identify Ingredients:** The model scans the uploaded photo for usable items [2].
-2.  **Propose Weekly Plan:** A kid-friendly, 7-day meal plan is generated using the available ingredients [2].
-3.  **Refine:** The user can provide additional feedback to tweak the meals [2].
-4.  **Generate Shopping Needs:** Once the plan is approved, the app finalizes the missing items needed for the week [2].
+Preferences are saved to `.family_preferences.json`. The prompt template that controls generation is in `prompts/meal_planner_prompt.txt`.
 
-*Note: Family preferences are automatically remembered in `.family_preferences.json` and preloaded on your next launch [1]. If you want to tweak the AI's behavior, the prompt template is cleanly separated in `prompts/meal_planner_prompt.txt` so you can iterate without touching the Python code [1].*
+## Setup & Quick Run
 
-## ⚙️ Setup & Installation
+Prerequisites: Apple Silicon Mac (M1/M2/M3) and `uv` installed.
 
-**Prerequisites:** Apple Silicon Mac (M1/M2/M3) and `uv` installed.
+```bash
+git clone https://github.com/Day2Ops/gemma-meal-planner.git
+cd gemma-meal-planner
+uv run app.py
+```
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Day2Ops/gemma-meal-planner.git
-   cd gemma-meal-planner
-2. Install dependencies and run via uv:  
-`uv run app.py`  
-3. Open the Gradio App:  
-`Running on local URL:  http://127.0.0.1:7861`
+Open the Gradio app at the URL shown in the console (typically `http://127.0.0.1:7861`).
 
-🐛 Troubleshooting
-If the structured JSON parsing fails during generation, simply enable "Show raw model output when generation fails" in the Gradio UI to inspect the exact model response and debug the output.
+## CLI Usage
+
+The repository includes a CLI wrapper `analyze.py` for scripted runs.
+
+Run:
+
+```bash
+uv run python gemma-meal-planner/analyze.py [IMAGE ...] [--model MODEL] [--max-tokens N] [--family-preferences "..."] [--additional-feedback "..."] [--plan-approved] [--verbose]
+```
+
+Flags:
+
+- `--model`: Model path or HF repo (default: `mlx-community/gemma-4-e2b-it-4bit`)
+- `--max-tokens`: Maximum tokens to generate (default: 2048)
+- `--family-preferences`: Family context (default loaded from `.family_preferences.json`)
+- `--additional-feedback`: Extra instructions to refine the plan
+- `--plan-approved`: Mark plan as approved so the model includes a shopping list
+- `--verbose`: Show generation progress
+
+Example:
+
+```bash
+uv run python gemma-meal-planner/analyze.py fridge.jpg --family-preferences "2 adults, 1 child" --plan-approved
+```
+
+## JSON Output Schema
+
+The model is instructed to emit a strict JSON object. The playground prompt (`prompts/meal_planner_prompt.txt`) defines the expected schema; a minimal reproduction is below:
+
+```json
+{
+   "plan_status": "proposal|final",
+   "identified_ingredients": ["list", "of", "found", "items"],
+   "weekly_meal_plan": [
+      {
+         "day": "Monday",
+         "meal_name": "Fun Veggie Tacos",
+         "description": "Crunchy tacos packed with beans, cheese, and tomatoes!",
+         "ingredients_used_from_fridge": ["tomatoes", "cheese"],
+         "ingredients_needed": ["taco shells", "black beans"]
+      }
+   ],
+   "feedback_request": "Question(s) to refine the plan",
+   "shopping_list": ["taco shells", "black beans"]
+}
+```
+
+The application (`planner.py`) parses model output robustly (direct JSON parse → extract JSON-like substrings → autocomplete truncated JSON → request model-assisted repair) and raises a readable error when parsing fails.
+
+## Troubleshooting
+
+- If parsing fails, enable "Show raw model output when generation fails" in the Gradio UI to inspect the raw text.
+- `mlx_vlm.generate` may return a GenerationResult object — use `output.text` (or `_extract_text()` helper) to get the text content.
+
+---
+
+For development details, see `planner.py`, `app.py`, `analyze.py`, and the `prompts/` folder.
